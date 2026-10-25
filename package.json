@@ -1,0 +1,17 @@
+{
+  "name": "hooked",
+  "version": "1.0.0",
+  "description": "Hooked — cozy co-op cartoon fishing game for Telegram Mini Apps (@HookedGame)",
+  "main": "bot.js",
+  "private": true,
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,16 @@
+services:
+  hooked:
+    build: .
+    container_name: hooked
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3000
+      DB_PATH: /app/data/hooked.db
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - hooked-data:/app/data
+
+volumes:
+  hooked-data:
