@@ -17,9 +17,9 @@
 
   const G = {
     scene: null, app: null, room: null, myId: null, active: false,
-    state: 'idle', holding: false, power: 0, powerDir: 1, castBusy: false,
+    state: 'idle', holding: false, power: 0, powerDir: 1,
     fight: null, tension: 0, progress: 0, rush: false, phaseT: 0, overT: 0, slackT: 0, sendT: 0,
-    hooked: null, tutorialStep: 0,
+    tutorialStep: 0, evT: 0,
 
     init(scene, app) {
       this.scene = scene; this.app = app;
@@ -46,12 +46,14 @@
       for (const p of room.players) sc.addPlayer(p);
       this.renderHud();
       this.app.onGameEnter(room);
+      if (room.boss) this.showBoss(room.boss);
       if (!(window.HStore.get('tutorialDone'))) this.tutorial(0);
     },
     exit() {
       this.active = false;
       this.room = null;
       this.state = 'idle';
+      this.scene.setBoss(null);
       document.getElementById('hud').hidden = true;
       document.getElementById('hud').innerHTML = '';
     },
@@ -66,38 +68,50 @@
       const hud = document.getElementById('hud');
       const r = this.room;
       const solo = r.solo;
+      const loc = D.LOC_BY_ID[r.loc] || D.LOCATIONS[0];
       hud.hidden = false;
       hud.innerHTML = `
         <div class="hud-top">
           <button class="icon-btn" id="hud-back" aria-label="Назад">${A.icon('back', '#ffb84d', 26)}</button>
           <div class="room-pill" id="room-pill">
-            <div class="rn"><div>${solo ? 'Тихое озеро' : esc(r.name)}</div><small>${solo ? 'СОЛО' : A.icon(r.isPublic ? 'globe' : 'lock', r.isPublic ? '#7fd4f5' : '#ffd23f', 13) + ' ' + r.code}</small></div>
+            <div class="rn"><div>${solo ? esc(loc.name) : esc(r.name)}</div><small>${solo ? loc.emoji + ' СОЛО' : A.icon(r.isPublic ? 'globe' : 'lock', r.isPublic ? '#7fd4f5' : '#ffd23f', 13) + ' ' + r.code + ' · ' + esc(loc.short)}</small></div>
             <span class="cnt" id="room-cnt">${A.icon('users', '#fff', 18)}${r.players.length}/${r.max}</span>
           </div>
           <div class="spacer"></div>
+          <button class="icon-btn ev-btn" id="ev-btn" hidden></button>
           <div class="chip coins" id="hud-coins">${A.icon('coin', '', 28)}<span class="num">${fmt(this.app.profile.coins)}</span></div>
         </div>
+        <div class="boss-bar" id="boss-bar" hidden><div class="bb-head"><b id="bb-name"></b><span id="bb-time"></span></div><div class="bb-track"><i id="bb-hp"></i></div></div>
         <div class="feed" id="feed"></div>
-        <div class="reel-ui" id="reel-ui" hidden>
-          <div class="hint"><span id="reel-hint">Держи, чтобы тянуть!</span><span class="rar" id="reel-rar">?</span></div>
-          <div class="gauge"><div class="needle" id="needle"></div></div>
-          <div class="gauge-labels"><span>слабо</span><span>отлично</span><span>опасно</span><span>обрыв!</span></div>
-          <div class="dist"><i id="dist"></i></div>
-        </div>
-        <button class="btn white sm cancel-btn" id="cancel-btn" hidden>${A.icon('hook', '#9fd2ff', 20)} Смотать</button>
-        <div class="tutorial" id="tut" hidden></div>
-        <div class="hud-bottom">
-          <button class="icon-btn hud-side" id="emote-btn" aria-label="Эмоции"><span style="font-size:28px;line-height:1">😊</span></button>
-          <div class="cast-wrap">
-            <svg class="cast-ring" viewBox="0 0 138 138"><circle class="bg" cx="69" cy="69" r="62"/><circle class="fg" id="ring" cx="69" cy="69" r="62" stroke-dasharray="389.6" stroke-dashoffset="389.6"/></svg>
-            <button class="cast-btn" id="cast-btn"></button>
+        <div class="hud-dock">
+          <div class="tutorial" id="tut" hidden></div>
+          <div class="reel-ui" id="reel-ui" hidden>
+            <div class="hint"><span id="reel-hint">Держи, чтобы тянуть!</span><span class="rar" id="reel-rar">?</span></div>
+            <div class="gauge"><div class="needle" id="needle"></div></div>
+            <div class="gauge-labels"><span>слабо</span><span>отлично</span><span>опасно</span><span>обрыв!</span></div>
+            <div class="dist"><i id="dist"></i></div>
           </div>
-          <button class="icon-btn hud-side" id="side-btn" aria-label="${solo ? 'Звук' : 'Пригласить'}">${solo ? A.icon(S.sfxOn ? 'sound' : 'mute', '#9fd2ff', 28) : A.icon('share', '#7ee081', 28)}</button>
+          <button class="btn white sm cancel-btn" id="cancel-btn" hidden>${A.icon('hook', '#9fd2ff', 20)} Смотать</button>
+          <div class="hud-bottom" id="hud-bottom">
+            <div class="side-col">
+              <button class="icon-btn hud-side" id="emote-btn" aria-label="Эмоции"><span style="font-size:28px;line-height:1">😊</span></button>
+            </div>
+            <div class="cast-wrap">
+              <svg class="cast-ring" viewBox="0 0 138 138"><circle class="bg" cx="69" cy="69" r="62"/><circle class="fg" id="ring" cx="69" cy="69" r="62" stroke-dasharray="389.6" stroke-dashoffset="389.6"/></svg>
+              <button class="cast-btn" id="cast-btn"></button>
+            </div>
+            <div class="side-col">
+              <button class="icon-btn hud-side bait-btn" id="bait-btn" aria-label="Наживка"></button>
+              <button class="icon-btn hud-side" id="side-btn" aria-label="${solo ? 'Звук' : 'Пригласить'}">${solo ? A.icon(S.sfxOn ? 'sound' : 'mute', '#9fd2ff', 28) : A.icon('share', '#7ee081', 28)}</button>
+            </div>
+          </div>
         </div>`;
       hud.querySelector('#hud-back').onclick = () => { S.play('click'); this.leave(); };
       hud.querySelector('#room-pill').onclick = () => { if (!solo) { S.play('click'); this.app.roomInfoModal(this.room); } };
       hud.querySelector('#cancel-btn').onclick = () => { S.play('click'); if (this.state === 'wait') N.send({ t: 'cancel' }); };
-      hud.querySelector('#emote-btn').onclick = () => this.toggleEmotes();
+      hud.querySelector('#emote-btn').onclick = () => this.togglePop('emote');
+      hud.querySelector('#bait-btn').onclick = () => this.togglePop('bait');
+      hud.querySelector('#ev-btn').onclick = () => { S.play('click'); this.app.eventsToast(); };
       hud.querySelector('#side-btn').onclick = e => {
         S.play('click');
         if (solo) { S.setSfx(!S.sfxOn); e.currentTarget.innerHTML = A.icon(S.sfxOn ? 'sound' : 'mute', '#9fd2ff', 28); }
@@ -110,6 +124,8 @@
       btn.addEventListener('pointercancel', up);
       btn.addEventListener('contextmenu', e => e.preventDefault());
       this.updateButton();
+      this.updateBait();
+      this.updateEvents();
     },
     updateCount() {
       const el = document.getElementById('room-cnt');
@@ -118,6 +134,21 @@
     updateCoins() {
       const el = document.querySelector('#hud-coins .num');
       if (el) el.textContent = fmt(this.app.profile.coins);
+    },
+    updateBait() {
+      const el = document.getElementById('bait-btn');
+      if (!el) return;
+      const m = this.app.profile.meta || {};
+      const id = m.bait || 'worm';
+      const n = id === 'worm' ? '∞' : ((m.baits || {})[id] || 0);
+      el.innerHTML = `${A.baitSvg(id, 32)}<span class="bait-n">${n}</span>`;
+    },
+    updateEvents() {
+      const el = document.getElementById('ev-btn');
+      if (!el) return;
+      const act = D.eventSchedule(Date.now()).filter(e => e.active);
+      el.hidden = !act.length;
+      el.innerHTML = act.length ? `<span style="font-size:24px;line-height:1">${act[0].emoji}</span>${act.length > 1 ? `<i class="ev-n">${act.length}</i>` : ''}` : '';
     },
     updateButton() {
       const b = document.getElementById('cast-btn');
@@ -163,20 +194,36 @@
       hud.appendChild(d);
       setTimeout(() => d.remove(), 1500);
     },
-    toggleEmotes() {
+    togglePop(kind) {
       S.play('pop');
-      const hud = document.getElementById('hud');
-      const ex = hud.querySelector('.emote-pop');
-      if (ex) return ex.remove();
+      const box = document.getElementById('hud-bottom');
+      if (!box) return;
+      const ex = box.querySelector('.hud-pop');
+      if (ex) { const same = ex.dataset.kind === kind; ex.remove(); if (same) return; }
       const pop = document.createElement('div');
-      pop.className = 'emote-pop';
-      pop.innerHTML = Object.entries(window.HScene.EMOTES).map(([k, e]) => `<button data-e="${k}">${e}</button>`).join('');
-      pop.onclick = e => {
-        const b = e.target.closest('button'); if (!b) return;
-        N.send({ t: 'emote', e: b.dataset.e });
-        pop.remove();
-      };
-      hud.appendChild(pop);
+      pop.className = 'hud-pop ' + (kind === 'emote' ? 'emote-pop' : 'bait-pop');
+      pop.dataset.kind = kind;
+      const p = this.app.profile, owned = new Set(p.owned);
+      if (kind === 'emote') {
+        pop.innerHTML = D.EMOTES.filter(e => !e.pass || owned.has('emote:' + e.id)).map(e => `<button data-e="${e.id}" aria-label="${esc(e.name)}">${e.e}</button>`).join('');
+        pop.onclick = e => {
+          const b = e.target.closest('button'); if (!b) return;
+          N.send({ t: 'emote', e: b.dataset.e });
+          pop.remove();
+        };
+      } else {
+        const m = p.meta || {}, baits = m.baits || {};
+        const list = D.BAITS.filter(b => b.id === 'worm' || baits[b.id] > 0);
+        pop.innerHTML = `<div class="pop-title">Наживка</div>` + list.map(b => `<button class="bait-row ${m.bait === b.id ? 'on' : ''}" data-b="${b.id}">${A.baitSvg(b.id, 30)}<span><b>${b.name}</b><small>${b.id === 'worm' ? '∞' : '×' + baits[b.id]}</small></span></button>`).join('') +
+          (list.length < 2 ? `<div class="pop-hint">Купи наживку в магазине — она меняет клёв</div>` : '');
+        pop.onclick = async e => {
+          const b = e.target.closest('[data-b]'); if (!b) return;
+          pop.remove();
+          await this.app.setBait(b.dataset.b);
+          this.updateBait();
+        };
+      }
+      box.appendChild(pop);
     },
     tutorial(step) {
       const el = document.getElementById('tut');
@@ -192,10 +239,37 @@
       el.hidden = false;
     },
 
+    /* ---------- boss ---------- */
+    showBoss(b) {
+      this.room.boss = b;
+      this.scene.setBoss(b);
+      const bar = document.getElementById('boss-bar');
+      if (!bar) return;
+      bar.hidden = false;
+      document.getElementById('bb-name').textContent = '👹 ' + b.name;
+      this.updateBoss();
+    },
+    updateBoss() {
+      const b = this.room && this.room.boss;
+      const bar = document.getElementById('boss-bar');
+      if (!bar || !b) return;
+      document.getElementById('bb-hp').style.width = (b.hp / b.max * 100).toFixed(1) + '%';
+      const left = Math.max(0, Math.ceil((b.endsAt - Date.now()) / 1000));
+      document.getElementById('bb-time').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    },
+    hideBoss() {
+      if (this.room) this.room.boss = null;
+      this.scene.setBoss(null);
+      const bar = document.getElementById('boss-bar');
+      if (bar) bar.hidden = true;
+    },
+
     /* ---------- input ---------- */
     press() {
       S.unlock();
       const st = this.state;
+      const pop = document.querySelector('#hud-bottom .hud-pop');
+      if (pop) pop.remove();
       if (st === 'idle') {
         this.state = 'aim'; this.holding = true; this.power = 0; this.powerDir = 1;
         this.scene.aim(this.myId, 0);
@@ -237,11 +311,14 @@
         this.setRing(this.power, this.power > 0.85 ? '#ff6b6b' : this.power > 0.5 ? '#ffa62b' : '#ffd23f');
       }
       if (this.state === 'reel' && this.fight) this.reelTick(dt);
+      this.evT -= dt;
+      if (this.evT <= 0) { this.evT = 1; this.updateBoss(); if (Math.random() < 0.05) this.updateEvents(); }
     },
 
     startFight(fight, species) {
       const rod = D.ROD_BY_ID[this.myRod()] || D.RODS[0];
-      this.fight = Object.assign({}, fight, { rod, species });
+      const gear = { power: fight.power || rod.power, reel: fight.reel || rod.reel };
+      this.fight = Object.assign({}, fight, { rod: gear, species });
       this.tension = 0.35; this.progress = 0.04; this.rush = false; this.phaseT = 1.2;
       this.overT = 0; this.slackT = 0; this.sendT = 0; this.reelSound = 0; this.warnT = 0;
       this.state = 'reel';
@@ -304,6 +381,10 @@
 
     /* ---------- server events ---------- */
     onMessage(m) {
+      // these concern the player even outside the lake
+      if (m.t === 'bait') { this.app.onBait(m); this.updateBait(); return; }
+      if (m.t === 'lic') { this.app.onLicense(m.lic); return; }
+      if (m.t === 'quest') { this.app.onQuests(m.done, m.pass); return; }
       if (!this.active) return;
       const sc = this.scene, me = m.id === this.myId;
       const pl = id => this.room.players.find(p => p.id === id);
@@ -318,7 +399,7 @@
           const p = pl(m.id);
           this.room.players = this.room.players.filter(x => x.id !== m.id);
           sc.removePlayer(m.id); this.updateCount();
-          if (p) this.feed(`🚪 <b>${esc(p.name)}</b> ушёл с озера`);
+          if (p) this.feed(`🚪 <b>${esc(p.name)}</b> ушёл с воды`);
           break;
         }
         case 'player': {
@@ -328,8 +409,8 @@
           break;
         }
         case 'cast':
-          if (me && this.localCast && Date.now() - this.localCast < 1500) { const p = sc.players.get(m.id); if (p) p.depth = m.depth; }
-          else sc.cast(m.id, m.depth);
+          if (me && this.localCast && Date.now() - this.localCast < 1500) { const p = sc.players.get(m.id); if (p) { p.depth = m.depth; if (m.fx) p.effect = m.fx; } }
+          else sc.cast(m.id, m.depth, m.fx);
           if (me) this.localCast = 0;
           break;
         case 'approach': sc.approach(m.id, m.species, m.weight); break;
@@ -392,6 +473,26 @@
           this.feed(`⭐ <b>${esc(p ? p.name : 'Рыбак')}</b> достиг ${m.level} уровня!`);
           break;
         }
+        case 'boss':
+          this.showBoss(m.boss);
+          this.bigMsg(m.boss.name + '!', '#ff6b8a');
+          this.feed(`👹 Из глубины поднялся <b>${esc(m.boss.name)}</b>! Ловите рыбу вместе, чтобы победить его`);
+          S.play('bite'); haptic('notify', 'warning');
+          break;
+        case 'bossHit':
+          if (this.room.boss) { this.room.boss.hp = m.hp; this.room.boss.max = m.max; }
+          sc.bossHit(m.hp);
+          sc.floatText(m.id, `−${m.dmg} ❤`, '#ff8aa0');
+          this.updateBoss();
+          break;
+        case 'bossEnd':
+          this.hideBoss();
+          if (m.win) { this.bigMsg('Босс повержен!', '#7ee081'); S.play('level'); this.feed(`🏆 <b>${esc(m.name)}</b> повержен! Герои: ${esc((m.winners || []).join(', '))}`); }
+          else { this.bigMsg('Босс уплыл…', '#ffd23f'); this.feed(`🌊 <b>${esc(m.name)}</b> ушёл на глубину`); }
+          break;
+        case 'bossReward':
+          this.app.onBossReward(m);
+          break;
       }
     },
   };
